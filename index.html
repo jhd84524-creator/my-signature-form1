@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>온라인 서명 폼</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #f9f9fb; padding: 20px; display: flex; justify-content: center; }
+    .card { background: white; border-radius: 12px; border: 1px solid #e1e4e8; padding: 24px; max-width: 500px; width: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    h2 { font-size: 20px; margin-bottom: 8px; color: #111; }
+    p { font-size: 14px; color: #666; margin-bottom: 20px; line-height: 1.5; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; }
+    input[type="text"], input[type="date"] { width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+    canvas { border: 2px dashed #bbb; border-radius: 8px; background: #fafafa; cursor: crosshair; touch-action: none; width: 100%; height: 180px; }
+    .btn-group { display: flex; gap: 8px; margin-top: 8px; }
+    button { padding: 8px 16px; border-radius: 6px; border: none; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+    .btn-clear { background: #e4e6eb; color: #333; }
+    .btn-submit { background: #2383e2; color: white; flex: 1; }
+    .btn-submit:hover { background: #1d72c8; }
+    .status { margin-top: 12px; font-size: 13px; text-align: center; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>온라인 수기 서명 폼</h2>
+    <p>아래 내용을 작성하고 서명란에 손가락이나 마우스로 서명해 주세요.</p>
+    
+    <div class="form-group">
+      <label>성명</label>
+      <input type="text" id="name" placeholder="홍길동">
+    </div>
+
+    <div class="form-group">
+      <label>작성일자</label>
+      <input type="date" id="date">
+    </div>
+
+    <div class="form-group">
+      <label>서명 패드</label>
+      <canvas id="sig-canvas"></canvas>
+      <div class="btn-group">
+        <button class="btn-clear" onclick="clearCanvas()">지우기</button>
+        <button class="btn-submit" id="submit-btn" onclick="submitForm()">서명 제출하기</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    // ★ Step 2에서 복사한 Make.com Webhook URL을 아래에 넣으세요 ★
+    const WEBHOOK_URL = "https://hook.us2.make.com/r7uttvzvq6iactl9n3drtejaruv0fiyp";
+
+    const canvas = document.getElementById('sig-canvas');
+    const ctx = canvas.getContext('2d');
+    let isDrawing = false;
+    let isSigned = false;
+
+    document.getElementById('date').value = new Date().toISOString().substring(0, 10);
+
+    function resizeCanvas() {
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = '#000000';
+    }
+    window.addEventListener('resize', resizeCanvas);
+    setTimeout(resizeCanvas, 100);
+
+    function getPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      return { x: clientX - rect.left, y: clientY - rect.top };
+    }
+
+    function startDraw(e) { isDrawing = true; isSigned = true; const pos = getPos(e); ctx.beginPath(); ctx.moveTo(pos.x, pos.y); }
+    function draw(e) { if (!isDrawing) return; e.preventDefault(); const pos = getPos(e); ctx.lineTo(pos.x, pos.y); ctx.stroke(); }
+    function stopDraw() { isDrawing = false; }
+
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', draw);
+    window.addEventListener('mouseup', stopDraw);
+
+    canvas.addEventListener('touchstart', startDraw, {passive: false});
+    canvas.addEventListener('touchmove', draw, {passive: false});
+    canvas.addEventListener('touchend', stopDraw);
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      isSigned = false;
+      document.getElementById('status').innerText = '';
+    }
+
+    async function submitForm() {
+      const name = document.getElementById('name').value;
+      const date = document.getElementById('date').value;
+      const status = document.getElementById('status');
+      const btn = document.getElementById('submit-btn');
+
+      if (!name) { alert('성명을 입력해 주세요.'); return; }
+      if (!isSigned) { alert('서명을 진행해 주세요.'); return; }
+
+      // 서명 이미지 Base64 인코딩 데이터 추출
+      const signatureImage = canvas.toDataURL('image/png');
+
+      btn.disabled = true;
+      status.style.color = '#666';
+      status.innerText = '제출 중...';
+
+      try {
+        const response = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name,
+            date: date,
+            signature: signatureImage
+          })
+        });
+
+        status.style.color = '#00875a';
+        status.innerText = '✅ 노션 데이터베이스로 전송되었습니다!';
+        clearCanvas();
+        document.getElementById('name').value = '';
+      } catch (err) {
+        status.style.color = '#de350b';
+        status.innerText = '❌ 전송 실패. 다시 시도해 주세요.';
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
